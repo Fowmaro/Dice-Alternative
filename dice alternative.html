@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <title>Dice Alternatives: Live Timer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.0.0"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #F3F4F6;
+            height: 100dvh;
+        }
+        
+        button { touch-action: manipulation; }
+
+        /* UI Components */
+        .btn-3d {
+            transition: transform 0.1s, box-shadow 0.1s;
+            box-shadow: 0 4px 0 rgba(0,0,0,0.2);
+        }
+        .btn-3d:active {
+            transform: translateY(4px);
+            box-shadow: 0 0 0 rgba(0,0,0,0.2);
+        }
+        .btn-3d:disabled {
+            transform: none;
+            box-shadow: none;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 4px; }
+
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 340px; 
+            height: 300px;
+            margin: 0 auto;
+            filter: drop-shadow(0 10px 8px rgba(0,0,0,0.1));
+        }
+        @media (min-width: 768px) {
+            .chart-container { height: 340px; }
+        }
+        
+        .wheel-pointer {
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0; height: 0; 
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 35px solid #1E293B;
+            z-index: 20;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.3));
+        }
+
+        /* Animations */
+        @keyframes pop-in {
+            0% { transform: scale(0.5); opacity: 0; }
+            70% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .anim-pop { animation: pop-in 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+
+        @keyframes pulse-text {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.8; transform: scale(0.95); }
+        }
+        .anim-pulse-fast { animation: pulse-text 0.5s infinite; }
+
+        #confetti-canvas {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; z-index: 100;
+        }
+        
+        .btn-preset {
+            @apply px-2 py-1.5 text-xs font-bold rounded bg-slate-700 hover:bg-slate-600 text-slate-200 transition border border-slate-600 flex-grow sm:flex-grow-0 text-center;
+        }
+        .btn-preset-active {
+            @apply bg-blue-600 hover:bg-blue-500 border-blue-500 text-white shadow-lg shadow-blue-900/50;
+        }
+    </style>
+</head>
+<body class="text-slate-800 flex flex-col overflow-hidden">
+
+    <canvas id="confetti-canvas"></canvas>
+
+    <!-- HEADER -->
+    <header class="bg-slate-900 text-white shadow-lg z-20 shrink-0 pb-2 safe-top">
+        <div class="max-w-6xl mx-auto px-4 pt-4 pb-2">
+            <div class="flex flex-col xl:flex-row justify-between items-center gap-3">
+                
+                <div class="text-center xl:text-left">
+                    <h1 class="text-xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400">
+                        DICE ALTERNATIVES
+                    </h1>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-center gap-2 w-full xl:w-auto">
+                    <div class="flex overflow-x-auto pb-2 sm:pb-0 gap-1 w-full sm:w-auto no-scrollbar justify-start sm:justify-center px-1">
+                        <button onclick="setPreset('coin')" class="btn-preset">Coin</button>
+                        <button onclick="setPreset('d4')" class="btn-preset">D4</button>
+                        <button onclick="setPreset('d6')" class="btn-preset btn-preset-active">D6</button>
+                        <button onclick="setPreset('d8')" class="btn-preset">D8</button>
+                        <button onclick="setPreset('d10')" class="btn-preset">D10</button>
+                        <button onclick="setPreset('d12')" class="btn-preset">D12</button>
+                        <button onclick="setPreset('d20')" class="btn-preset">D20</button>
+                    </div>
+
+                    <div class="flex gap-2 w-full sm:w-auto">
+                        <div class="relative flex-grow">
+                            <input type="text" id="custom-input" placeholder="Custom..." 
+                                class="w-full sm:w-32 px-3 py-1.5 text-base sm:text-sm rounded-lg bg-slate-900 border border-slate-600 focus:border-blue-400 outline-none text-white placeholder-slate-600">
+                            <button id="btn-apply-custom" class="absolute right-1 top-1 bottom-1 px-2 text-[10px] font-bold bg-slate-700 rounded text-slate-300">OK</button>
+                        </div>
+
+                        <select id="speed-select" class="bg-slate-800 text-xs font-bold text-orange-400 rounded px-2 py-1 outline-none border border-slate-700">
+                            <option value="slow" class="text-white">Slow</option>
+                            <option value="normal" selected class="text-white">Normal</option>
+                            <option value="fast" class="text-white">Fast</option>
+                            <option value="superfast" class="text-white">⚡ Super</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN CONTENT -->
+    <main class="flex-grow overflow-y-auto custom-scroll bg-gradient-to-b from-slate-100 to-slate-200">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col lg:flex-row gap-4 min-h-full">
+
+            <!-- TOOLS COLUMN -->
+            <div class="w-full lg:w-2/3 flex flex-col gap-4">
+                
+                <!-- Nav Pills -->
+                <div class="bg-white p-1 rounded-full shadow-sm border border-slate-200 flex">
+                    <button id="tab-wheel" class="flex-1 py-2 rounded-full text-sm font-bold transition-all text-white bg-blue-600 shadow-md">Wheel</button>
+                    <button id="tab-flasher" class="flex-1 py-2 rounded-full text-sm font-bold transition-all text-slate-500">Flasher</button>
+                    <button id="tab-countdown" class="flex-1 py-2 rounded-full text-sm font-bold transition-all text-slate-500">Count</button>
+                </div>
+
+                <!-- ACTIVE TOOL -->
+                <div class="bg-white rounded-2xl shadow-xl border border-white/50 p-4 sm:p-8 min-h-[450px] flex flex-col items-center justify-center relative overflow-hidden">
+                    <div id="bg-blob" class="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-cyan-400 transition-colors duration-500"></div>
+
+                    <!-- 1. WHEEL -->
+                    <div id="view-wheel" class="w-full flex flex-col items-center space-y-6">
+                        <div class="chart-container">
+                            <div class="wheel-pointer"></div>
+                            <canvas id="wheelCanvas"></canvas>
+                        </div>
+                        
+                        <div class="flex flex-col items-center gap-1 w-full">
+                            <div class="h-16 flex flex-col items-center justify-center">
+                                <span id="wheel-result-text" class="text-3xl sm:text-5xl font-black text-slate-300 transition-all leading-none">Ready?</span>
+                                <!-- Timer visible immediately during spin -->
+                                <span id="wheel-timer" class="text-sm font-mono font-bold text-blue-500 mt-2 opacity-0 transition-opacity">0.00s</span>
+                            </div>
+                            <div class="flex gap-3 w-full justify-center mt-2">
+                                <button id="btn-spin" class="btn-3d flex-1 max-w-[140px] py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl text-lg">SPIN</button>
+                                <button id="btn-stop-wheel" disabled class="btn-3d flex-1 max-w-[140px] py-3 bg-red-500 hover:bg-red-400 text-white font-bold rounded-xl text-lg">STOP</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. FLASHER -->
+                    <div id="view-flasher" class="hidden w-full flex flex-col items-center space-y-6">
+                        <div class="relative">
+                            <div id="flash-ring" class="absolute -inset-4 bg-purple-100 rounded-full scale-0 transition-transform duration-300"></div>
+                            <div id="flash-display" class="relative w-56 h-56 sm:w-64 sm:h-64 bg-slate-50 rounded-3xl flex flex-col items-center justify-center shadow-inner border-4 border-slate-100 overflow-hidden group">
+                                <div class="absolute inset-0 bg-gradient-to-br from-white to-slate-100 opacity-50"></div>
+                                <span id="flash-value" class="relative z-10 text-6xl sm:text-8xl font-black text-slate-800 text-center px-2 break-words leading-none">?</span>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center gap-1 w-full">
+                            <div class="h-12 flex flex-col items-center justify-center">
+                                <p id="flash-status" class="text-slate-400 font-medium text-xs uppercase tracking-wide">Press Start</p>
+                                <p id="flash-timer" class="text-sm font-mono font-bold text-purple-500 mt-1 opacity-0">0.00s</p>
+                            </div>
+                            <div class="flex gap-3 w-full justify-center mt-2">
+                                <button id="btn-flash-start" class="btn-3d flex-1 max-w-[140px] py-3 bg-purple-600 hover:bg-purple-500 text-white font-bold rounded-xl text-lg">START</button>
+                                <button id="btn-flash-stop" disabled class="btn-3d flex-1 max-w-[140px] py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-lg">STOP</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. COUNTDOWN -->
+                    <div id="view-countdown" class="hidden w-full flex flex-col items-center space-y-6">
+                         <div class="relative">
+                            <div id="count-ring" class="absolute -inset-4 bg-orange-100 rounded-full scale-0 transition-transform duration-300"></div>
+                            <div id="count-display" class="relative w-56 h-56 sm:w-64 sm:h-64 bg-slate-900 rounded-3xl flex flex-col items-center justify-center shadow-2xl border-4 border-slate-800 overflow-hidden">
+                                <span id="count-value" class="relative z-10 text-6xl sm:text-8xl font-black text-white text-center px-2 break-words leading-none">--</span>
+                                <div class="absolute top-4 right-4 flex gap-1">
+                                    <div class="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
+                                    <div class="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse delay-75"></div>
+                                    <div class="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse delay-150"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col items-center gap-1 w-full">
+                            <div class="h-12 flex flex-col items-center justify-center">
+                                <p id="count-status" class="text-slate-400 font-medium text-xs uppercase tracking-wide">Ready to count?</p>
+                                <p id="count-timer" class="text-sm font-mono font-bold text-orange-500 mt-1 opacity-0">0.00s</p>
+                            </div>
+                            <div class="flex gap-3 w-full justify-center mt-2">
+                                <button id="btn-count-start" class="btn-3d flex-1 max-w-[140px] py-3 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded-xl text-lg">START</button>
+                                <button id="btn-count-stop" disabled class="btn-3d flex-1 max-w-[140px] py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl text-lg">STOP</button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- HISTORY COLUMN -->
+            <div class="w-full lg:w-1/3 flex-grow flex flex-col">
+                <div class="bg-white rounded-2xl shadow-lg border border-slate-200 flex flex-col h-full max-h-[400px] lg:max-h-[600px] overflow-hidden">
+                    <div class="bg-slate-50 p-3 border-b border-slate-100 flex justify-between items-center">
+                        <h3 class="font-bold text-slate-700 flex items-center gap-2 text-sm">
+                            <span>📜</span> History
+                        </h3>
+                        <button id="btn-clear-history" class="text-[10px] font-bold text-red-500 bg-red-50 px-2 py-1 rounded-full">Clear</button>
+                    </div>
+
+                    <div class="flex-grow overflow-y-auto custom-scroll p-3 space-y-2 bg-slate-50/50">
+                        <div id="history-empty" class="h-full flex flex-col items-center justify-center text-slate-300 space-y-1">
+                            <span class="text-3xl grayscale opacity-50">🎲</span>
+                            <p class="text-xs font-medium">No results</p>
+                        </div>
+                        <ul id="history-list" class="space-y-2 hidden"></ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // PASTE THE JAVASCRIPT FROM PART 2 BELOW THIS LINE
+        /* --- CORE LOGIC --- */
+        const state = {
+            items: ['1', '2', '3', '4', '5', '6'],
+            colors: [],
+            history: [],
+            speedConfig: {
+                slow: { wheelSpeed: 5, flashDelay: 400, countDelay: 300 },
+                normal: { wheelSpeed: 12, flashDelay: 150, countDelay: 100 },
+                fast: { wheelSpeed: 25, flashDelay: 60, countDelay: 40 },
+                superfast: { wheelSpeed: 50, flashDelay: 25, countDelay: 20 }
+            },
+            currentSpeed: 'normal',
+            startTime: 0,
+            timerFrame: null, // Holds requestAnimationFrame ID for timer updates
+            isSpinning: false, isFlashing: false, flashInterval: null, isCounting: false, countInterval: null, countIndex: 0, wheelRotation: 0
+        };
+
+        // DOM
+        const tabWheel = document.getElementById('tab-wheel');
+        const tabFlasher = document.getElementById('tab-flasher');
+        const tabCountdown = document.getElementById('tab-countdown');
+        const views = { wheel: document.getElementById('view-wheel'), flasher: document.getElementById('view-flasher'), countdown: document.getElementById('view-countdown') };
+        const bgBlob = document.getElementById('bg-blob');
+        const speedSelect = document.getElementById('speed-select');
+        const customInput = document.getElementById('custom-input');
+        const btnApplyCustom = document.getElementById('btn-apply-custom');
+        
+        // Wheel
+        const canvas = document.getElementById('wheelCanvas');
+        const btnSpin = document.getElementById('btn-spin');
+        const btnStopWheel = document.getElementById('btn-stop-wheel');
+        const wheelResultText = document.getElementById('wheel-result-text');
+        const wheelTimer = document.getElementById('wheel-timer');
+
+        // Flasher
+        const flashValue = document.getElementById('flash-value');
+        const flashDisplay = document.getElementById('flash-display');
+        const flashRing = document.getElementById('flash-ring');
+        const flashStatus = document.getElementById('flash-status');
+        const flashTimer = document.getElementById('flash-timer');
+        const btnFlashStart = document.getElementById('btn-flash-start');
+        const btnFlashStop = document.getElementById('btn-flash-stop');
+
+        // Countdown
+        const countValue = document.getElementById('count-value');
+        const countDisplay = document.getElementById('count-display');
+        const countRing = document.getElementById('count-ring');
+        const countStatus = document.getElementById('count-status');
+        const countTimer = document.getElementById('count-timer');
+        const btnCountStart = document.getElementById('btn-count-start');
+        const btnCountStop = document.getElementById('btn-count-stop');
+
+        // History
+        const historyList = document.getElementById('history-list');
+        const historyEmpty = document.getElementById('history-empty');
+        const btnClearHistory = document.getElementById('btn-clear-history');
+
+        // Confetti
+        const confettiCanvas = document.getElementById('confetti-canvas');
+        const cCtx = confettiCanvas.getContext('2d');
+        let confettiParticles = [];
+        
+        window.addEventListener('resize', () => {
+            confettiCanvas.width = window.innerWidth;
+            confettiCanvas.height = window.innerHeight;
+        });
+        confettiCanvas.width = window.innerWidth;
+        confettiCanvas.height = window.innerHeight;
+
+        function fireConfetti(colorHex) {
+            for(let i=0; i<60; i++) {
+                confettiParticles.push({
+                    x: window.innerWidth / 2, y: window.innerHeight / 2,
+                    vx: (Math.random() - 0.5) * 20, vy: (Math.random() - 1) * 20,
+                    size: Math.random() * 8 + 4, color: colorHex || '#FF5733',
+                    life: 100, gravity: 0.5
+                });
+            }
+            if (confettiParticles.length <= 60) animateConfetti(); 
+        }
+
+        function animateConfetti() {
+            if (confettiParticles.length === 0) {
+                cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+                return;
+            }
+            cCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+            for (let i = 0; i < confettiParticles.length; i++) {
+                let p = confettiParticles[i];
+                p.x += p.vx; p.y += p.vy; p.vy += p.gravity; p.life--; p.size *= 0.96;
+                cCtx.fillStyle = p.color; cCtx.beginPath(); cCtx.rect(p.x, p.y, p.size, p.size); cCtx.fill();
+                if (p.life <= 0 || p.size < 0.5) { confettiParticles.splice(i, 1); i--; }
+            }
+            requestAnimationFrame(animateConfetti);
+        }
+
+        function generateColors(count) {
+            const colors = [];
+            for (let i = 0; i < count; i++) {
+                const hue = Math.floor((i * 360) / count);
+                colors.push(`hsl(${hue}, 75%, 60%)`);
+            }
+            return colors;
+        }
+
+        function setActiveTab(mode) {
+            [tabWheel, tabFlasher, tabCountdown].forEach(btn => {
+                btn.className = "flex-1 py-2 rounded-full text-sm font-bold transition-all text-slate-500 hover:bg-slate-100";
+            });
+            Object.values(views).forEach(el => el.classList.add('hidden'));
+            if (mode === 'wheel') {
+                tabWheel.className = "flex-1 py-2 rounded-full text-sm font-bold transition-all text-white bg-blue-600 shadow-md";
+                views.wheel.classList.remove('hidden');
+                bgBlob.className = "absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 to-cyan-400 transition-colors duration-500";
+            } else if (mode === 'flasher') {
+                tabFlasher.className = "flex-1 py-2 rounded-full text-sm font-bold transition-all text-white bg-purple-600 shadow-md";
+                views.flasher.classList.remove('hidden');
+                bgBlob.className = "absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-purple-500 to-pink-400 transition-colors duration-500";
+            } else {
+                tabCountdown.className = "flex-1 py-2 rounded-full text-sm font-bold transition-all text-white bg-orange-600 shadow-md";
+                views.countdown.classList.remove('hidden');
+                bgBlob.className = "absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-orange-500 to-red-500 transition-colors duration-500";
+            }
+        }
+        tabWheel.addEventListener('click', () => setActiveTab('wheel'));
+        tabFlasher.addEventListener('click', () => setActiveTab('flasher'));
+        tabCountdown.addEventListener('click', () => setActiveTab('countdown'));
+        speedSelect.addEventListener('change', (e) => state.currentSpeed = e.target.value);
+
+        // --- TIMER LOGIC ---
+        function runTimer(displayId) {
+            const el = document.getElementById(displayId);
+            if(!el) return;
+            const now = performance.now();
+            const diff = ((now - state.startTime) / 1000).toFixed(2);
+            el.textContent = diff + "s";
+            state.timerFrame = requestAnimationFrame(() => runTimer(displayId));
+        }
+
+        function startTimerDisplay(displayId) {
+            state.startTime = performance.now();
+            const el = document.getElementById(displayId);
+            if(el) {
+                el.style.opacity = '1';
+                el.textContent = "0.00s";
+            }
+            if(state.timerFrame) cancelAnimationFrame(state.timerFrame);
+            runTimer(displayId);
+        }
+
+        function stopTimerDisplay(displayId) {
+            if(state.timerFrame) cancelAnimationFrame(state.timerFrame);
+            const now = performance.now();
+            const diff = ((now - state.startTime) / 1000).toFixed(2);
+            const el = document.getElementById(displayId);
+            if(el) el.textContent = diff + "s";
+            return diff;
+        }
+
+        function addToHistory(result, color, type, duration) {
+            const entry = { 
+                id: Date.now(), 
+                result, color, type, duration,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute:'2-digit' }) 
+            };
+            state.history.unshift(entry);
+            renderHistory();
+        }
+
+        function renderHistory() {
+            if (state.history.length === 0) { historyList.classList.add('hidden'); historyEmpty.classList.remove('hidden'); return; }
+            historyEmpty.classList.add('hidden'); historyList.classList.remove('hidden');
+            historyList.innerHTML = state.history.map(item => `
+                <li class="anim-pop bg-white p-2 rounded-xl shadow-sm border border-slate-100 flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <div class="w-1.5 h-8 rounded-full" style="background-color: ${item.color}"></div>
+                        <div>
+                            <p class="text-base font-black text-slate-800 leading-none">${item.result}</p>
+                            <p class="text-[8px] font-bold uppercase text-slate-400 tracking-wider">${item.type}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="block text-xs font-bold text-slate-600">⏱️ ${item.duration}s</span>
+                        <span class="block text-[9px] text-slate-400 font-mono">${item.time}</span>
+                    </div>
+                </li>
+            `).join('');
+        }
+        btnClearHistory.addEventListener('click', () => { state.history = []; renderHistory(); });
+
+        function setPreset(type) {
+            let newItems = [];
+            switch(type) {
+                case 'coin': newItems = ['Heads', 'Tails']; break;
+                case 'd4': newItems = ['1', '2', '3', '4']; break;
+                case 'd6': newItems = ['1', '2', '3', '4', '5', '6']; break;
+                case 'd8': newItems = Array.from({length:8}, (_, i) => String(i+1)); break;
+                case 'd10': newItems = Array.from({length:10}, (_, i) => String(i+1)); break;
+                case 'd12': newItems = Array.from({length:12}, (_, i) => String(i+1)); break;
+                case 'd20': newItems = Array.from({length:20}, (_, i) => String(i+1)); break;
+            }
+            document.querySelectorAll('.btn-preset').forEach(btn => {
+                if (btn.textContent.toLowerCase() === type || (btn.textContent.toLowerCase() === 'coin' && type === 'coin')) {
+                     btn.classList.add('btn-preset-active');
+                } else { btn.classList.remove('btn-preset-active'); }
+            });
+            updateSystem(newItems);
+        }
+
+        btnApplyCustom.addEventListener('click', () => {
+            const raw = customInput.value.trim(); if (!raw) return; 
+            const items = raw.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            if (items.length < 2) return alert("Enter at least 2 items");
+            document.querySelectorAll('.btn-preset').forEach(btn => btn.classList.remove('btn-preset-active'));
+            updateSystem(items); customInput.value = '';
+        });
+
+        function updateSystem(items) {
+            state.items = items; state.colors = generateColors(items.length);
+            wheelResultText.textContent = "Ready?"; wheelResultText.style.color = "#CBD5E1";
+            wheelTimer.style.opacity = '0';
+            flashValue.textContent = "?"; flashValue.style.color = "#1E293B";
+            flashTimer.style.opacity = '0';
+            countValue.textContent = "--"; countValue.style.color = "white";
+            countTimer.style.opacity = '0';
+            initWheelChart();
+        }
+
+        Chart.register(ChartDataLabels);
+        let wheelChart = null;
+        function initWheelChart() {
+            const ctx = canvas.getContext('2d'); if (wheelChart) wheelChart.destroy();
+            state.wheelRotation = 0; canvas.style.transform = `rotate(0deg)`;
+            wheelChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels: state.items, datasets: [{ data: new Array(state.items.length).fill(1), backgroundColor: state.colors, borderWidth: 0, hoverOffset: 0 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, rotation: 0, cutout: '35%',
+                    plugins: { legend: { display: false }, tooltip: { enabled: false }, datalabels: { color: '#fff', font: { family: 'Inter', weight: '800', size: state.items.length > 12 ? 10 : 16 }, formatter: (val, ctx) => ctx.chart.data.labels[ctx.dataIndex], display: (ctx) => state.items.length <= 30 } }
+                }
+            });
+        }
+
+        function animWheelLoop() {
+            if (!state.isSpinning) return;
+            state.wheelRotation += state.speedConfig[state.currentSpeed].wheelSpeed;
+            canvas.style.transform = `rotate(${state.wheelRotation}deg)`;
+            requestAnimationFrame(animWheelLoop);
+        }
+
+        btnSpin.addEventListener('click', () => {
+            if (state.isSpinning) return; state.isSpinning = true;
+            startTimerDisplay('wheel-timer');
+            wheelResultText.textContent = "Spinning..."; wheelResultText.style.color = "#94A3B8";
+            btnSpin.disabled = true; btnStopWheel.disabled = false; animWheelLoop();
+        });
+
+        btnStopWheel.addEventListener('click', () => {
+            if (!state.isSpinning) return; state.isSpinning = false;
+            const diff = stopTimerDisplay('wheel-timer');
+            btnSpin.disabled = false; btnStopWheel.disabled = true;
+            const degPerSegment = 360 / state.items.length;
+            const actualRot = state.wheelRotation % 360;
+            let pointerAngle = (360 - actualRot) % 360; if (pointerAngle < 0) pointerAngle += 360;
+            const index = Math.floor(pointerAngle / degPerSegment);
+            const winner = state.items[index]; const color = state.colors[index];
+            wheelResultText.textContent = winner; wheelResultText.style.color = color;
+            wheelResultText.classList.remove('anim-pop'); void wheelResultText.offsetWidth; wheelResultText.classList.add('anim-pop');
+            fireConfetti(color); addToHistory(winner, color, 'Wheel', diff);
+        });
+
+        btnFlashStart.addEventListener('click', () => {
+            state.isFlashing = true; btnFlashStart.disabled = true; btnFlashStop.disabled = false;
+            startTimerDisplay('flash-timer');
+            flashStatus.textContent = "Randomizing..."; 
+            flashRing.classList.add('scale-100'); flashRing.classList.remove('scale-0');
+            const delay = state.speedConfig[state.currentSpeed].flashDelay;
+            state.flashInterval = setInterval(() => {
+                const idx = Math.floor(Math.random() * state.items.length);
+                flashValue.textContent = state.items[idx]; flashValue.style.color = state.colors[idx];
+            }, delay);
+        });
+
+        btnFlashStop.addEventListener('click', () => {
+            if (!state.isFlashing) return; clearInterval(state.flashInterval); state.isFlashing = false;
+            const diff = stopTimerDisplay('flash-timer');
+            btnFlashStart.disabled = false; btnFlashStop.disabled = true; flashStatus.textContent = "Done!";
+            flashRing.classList.remove('scale-100'); flashRing.classList.add('scale-0');
+            const val = flashValue.textContent; const idx = state.items.indexOf(val); const color = idx > -1 ? state.colors[idx] : '#6B7280';
+            flashDisplay.classList.add('anim-pop'); setTimeout(() => flashDisplay.classList.remove('anim-pop'), 500);
+            fireConfetti(color); addToHistory(val, color, 'Flasher', diff);
+        });
+
+        btnCountStart.addEventListener('click', () => {
+            if (state.isCounting) return;
+            btnCountStart.disabled = true; btnCountStop.disabled = true;
+            countValue.style.color = "#FDBA74"; countValue.textContent = "READY"; countDisplay.classList.add('anim-pulse-fast');
+            countTimer.style.opacity = '0';
+            setTimeout(() => {
+                countValue.textContent = "GO!"; countValue.style.color = "#4ADE80";
+                setTimeout(() => {
+                    countDisplay.classList.remove('anim-pulse-fast'); state.isCounting = true;
+                    startTimerDisplay('count-timer'); // Start timer after GO!
+                    btnCountStop.disabled = false; countStatus.textContent = "Stop the sequence!";
+                    countRing.classList.remove('scale-0'); countRing.classList.add('scale-100');
+                    state.countIndex = state.items.length - 1;
+                    const delay = state.speedConfig[state.currentSpeed].countDelay;
+                    state.countInterval = setInterval(() => {
+                        const item = state.items[state.countIndex]; const color = state.colors[state.countIndex];
+                        countValue.textContent = item; countValue.style.color = "white"; countDisplay.style.borderColor = color;
+                        state.countIndex--; if (state.countIndex < 0) state.countIndex = state.items.length - 1;
+                    }, delay);
+                }, 600);
+            }, 800);
+        });
+
+        btnCountStop.addEventListener('click', () => {
+            if (!state.isCounting) return; clearInterval(state.countInterval); state.isCounting = false;
+            const diff = stopTimerDisplay('count-timer');
+            btnCountStart.disabled = false; btnCountStop.disabled = true;
+            countRing.classList.add('scale-0'); countRing.classList.remove('scale-100');
+            const val = countValue.textContent; const idx = state.items.indexOf(val); const color = idx > -1 ? state.colors[idx] : '#F97316';
+            countValue.style.color = color; countDisplay.style.borderColor = "#1E293B";
+            countDisplay.classList.add('anim-pop'); setTimeout(() => countDisplay.classList.remove('anim-pop'), 500);
+            fireConfetti(color); addToHistory(val, color, 'Countdown', diff);
+        });
+
+        updateSystem(['1', '2', '3', '4', '5', '6']);
+    </script>
+</body>
+</html>
